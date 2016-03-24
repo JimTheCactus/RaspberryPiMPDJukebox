@@ -203,7 +203,7 @@ try:
 		# If he haven't pinged in a while, do so as a keepalive.
 		if time.clock()-last_ping > 5:
 			client.ping()
-			last_ping = time.clock()
+			last_ping = time.clock()			
 	
 		# If we can update the display
 		if 'songid' in stats:
@@ -218,30 +218,44 @@ try:
 				title_string = title_string.ljust(16)
 				# Tell the LCD to reset the offset to 0 to show the new title.
 				reset_event.set()
-
-			# If we can tell when we are
-			if 'elapsed' in stats:
-				# Get the normal form of the time
-				minutes = int(float(stats['elapsed'])/60)
-				seconds = int(math.fmod(float(stats['elapsed']),60.0))
-			else:
-				minutes = 0
-				seconds = 0
-
-			# Get the volume and select the character that matches
-			volchar = int(float(stats['volume'])/100*4)+1
-			if volchar<1:
-				volchar = 1
-			if volchar > 5:
-				volchar = 5
-
-			# And then build the second line
-			line2 = "{:d}:{:02d}".format(minutes,seconds)
-			line2 += "                "[0:16-len(line2)-2]
-			line2 += " " + chr(volchar)
-
-			# Let go of the text so the LCD can use it.
 			text_lock.release()
+		elif stats['state'] == "stop" and title_string != "               ":
+			text_lock.acquire()
+			title_string = "                "
+			text_lock.release()
+		# If we can tell when we are
+		if 'elapsed' in stats:
+			# Get the normal form of the time
+			minutes = int(float(stats['elapsed'])/60)
+			seconds = int(math.fmod(float(stats['elapsed']),60.0))
+			elapsed = "{:3d}:{:02d}".format(minutes,seconds)
+		else:
+			elapsed = "---:--"
+
+		# Get the volume and select the character that matches
+		volchar = int(float(stats['volume'])/100*4)+1
+		if volchar<1:
+			volchar = 1
+		if volchar > 5:
+			volchar = 5
+
+		
+
+		# then build the second line
+		if stats['state']=="pause":
+			status_text = "Pause"
+		elif stats['state']=="stop":
+			status_text = "Stop"
+		elif stats['state']=="play":
+			status_text = "Play"
+		else:
+			status_text = "Unknown"
+
+		# Lock the LCD text while we update the second line.
+		text_lock.acquire()
+		line2 = "{:>6s}{:^9s}{:1s}".format(elapsed,status_text,chr(volchar))
+		# Let go of the text so the LCD can use it.
+		text_lock.release()
 
 		# Tell the server to start working on getting us the status while we go back to sleep
 		client.send_status()
