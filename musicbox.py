@@ -8,6 +8,7 @@ import Queue
 import Adafruit_CharLCD as LCD
 from mpd import MPDClient
 
+# Constants for the action queue.
 ACTION_VOLUME_UP = 1
 ACTION_VOLUME_DOWN = 2
 ACTION_NEXT = 3
@@ -137,23 +138,25 @@ client.timeout = 10
 client.idletimeout = None
 client.connect("localhost",6600)
 
-
-print 'Connected. Initializing player...'
-# Get the initial state
-stats = client.status()
-last_ping = time.clock()
-last_song_id = -1
-song = False
-
-
-print 'Initialization finished. Player active!'
-print 'Press Ctrl-C to quit.'
-
+# At this point, we need to catch the ^C to ensure we clean up gracefully.
 try:
-	stats = client.send_status() # Loop needs an initial request to work.
+	print 'Connected. Initializing player...'
+	# Mark that our last ping was now so we don't immediately ping.
+	last_ping = time.clock()
+	last_song_id = -1
+	song = False
+
+	client.send_status() # Loop needs an initial request to work.
+	print 'Initialization finished. Player active!'
+	print 'Press Ctrl-C to quit.'
+
+	# --------------------------
+	#        Main Loop
+	# --------------------------
 	while True:
 		stats = client.fetch_status() # Get the results of the last request
 		
+		# If we've got anything to do from the LCD panel.
 		while not action_queue.empty():
 			action = action_queue.get(False)
 			if action == ACTION_VOLUME_UP:
@@ -185,48 +188,64 @@ try:
 			else:
 				print('Unexpected action queue item: {0}'.format(action))
 	
+		# If he haven't pinged in a while, do so as a keepalive.
 		if time.clock()-last_ping > 5:
 			client.ping()
 			last_ping = time.clock()
 	
+		# If we can update the display
 		if 'songid' in stats:
+			# Lock the text so we can change it
 			text_lock.acquire()
+			# Check if it's a new song
 			if stats['songid'] != last_song_id:
+				# Build the new title based on the new song
 				song = client.currentsong()
 				last_song_id = song['id']
-				title_string = song.get('title',"No Title") + " [" + song.get('artist',"No Artist") + "] "
-				title_string += "                "[0:16-len(title_string)]
+				title_string = "{0} [{1}] ".format(song.get('title',"No Title"), song.get('artist',"No Artist"))
+				title_string = title_string.ljust(16)
+				# Tell the LCD to reset the offset to 0 to show the new title.
 				reset_event.set()
+
+			# If we can tell when we are
 			if 'elapsed' in stats:
+				# Get the normal form of the time
 				minutes = int(float(stats['elapsed'])/60)
 				seconds = int(math.fmod(float(stats['elapsed']),60.0))
 			else:
 				minutes = 0
 				seconds = 0
+
+			# Get the volume and select the character that matches
 			volchar = int(float(stats['volume'])/100*4)+1
 			if volchar<1:
 				volchar = 1
 			if volchar > 5:
 				volchar = 5
 
+			# And then build the second line
 			line2 = "{:d}:{:02d}".format(minutes,seconds)
 			line2 += "                "[0:16-len(line2)-2]
 			line2 += " " + chr(volchar)
+
+			# Let go of the text so the LCD can use it.
 			text_lock.release()
 
+		# Tell the server to start working on getting us the status while we go back to sleep
 		client.send_status()
+		# Nap time!
 		time.sleep(.5)
 
 except KeyboardInterrupt:
 	pass #from here on out we're bailing
 
 print "Disconnecting..."
-running = False
+running = False # Tell the LCD thread we're done
 client.disconnect()
 print "Shutting down plate_watcher..."
-plate_watcher.join()
+plate_watcher.join() # Wait for the LCD thread to die
 print "Cleaning up LCD..."
-lcd.set_color(0.0, 0.0, 0.0)
-lcd.clear()
+lcd.set_color(0.0, 0.0, 0.0) # Turn off the backlight
+lcd.clear() # And clear the screen
 print "Bye!"
 
