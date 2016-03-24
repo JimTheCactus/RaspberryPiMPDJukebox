@@ -4,8 +4,9 @@ import time
 import math
 import threading
 import Queue
+import atexit
 
-import Adafruit_CharLCD as LCD
+import Adafruit_CharLCDPlate as LCD
 from mpd import MPDClient
 
 # Constants for the action queue.
@@ -28,6 +29,7 @@ def plate_handler():
 	global action_queue
 	global reset_event
 	global text_lock
+	global lcd
 
 	# State machine contants
 	STATE_IDLE = 0
@@ -40,39 +42,47 @@ def plate_handler():
 	last_prev = -1 # Set the double press counter to something impossibly small
 	count = 0 # LCD Refresh decimator
 	offset = 0 # Text offset on line 1
+	buttons = 0 # Initialize the buttons value
 
 	try:
 		while running: # So long as the parent is going...
 			if state == STATE_DEBOUNCE: # Wait for the user to let go.
-				if (not lcd.is_pressed(debounce_button)):
+				if (not lcd.buttonPressed(debounce_button)):
 					state = STATE_IDLE
 			if state == STATE_HOLDOFF: # Wait an extra tick to let chatter settle out.
 				state = STATE_DEBOUNCE
 			if state == STATE_IDLE: # Check to see what buttons are pressed
-				if (lcd.is_pressed(LCD.UP)):
+				buttons = lcd.buttons()
+				if ((buttons >> lcd.UP) & 1):
 					action_queue.put(ACTION_VOLUME_UP)
 					state = STATE_HOLDOFF
-					debounce_button = LCD.UP
-				if (lcd.is_pressed(LCD.DOWN)):
+					debounce_button = lcd.UP
+				if ((buttons >> lcd.DOWN) & 1):
 					action_queue.put(ACTION_VOLUME_DOWN)
 					state = STATE_HOLDOFF
-					debounce_button = LCD.DOWN
-				if (lcd.is_pressed(LCD.RIGHT)):
+					debounce_button = lcd.DOWN
+				if ((buttons >> lcd.RIGHT) & 1):
 					action_queue.put(ACTION_NEXT)
 					state = STATE_HOLDOFF
-					debounce_button = LCD.RIGHT
-				if (lcd.is_pressed(LCD.LEFT)):
-					if time.clock() - last_prev < 2:
+					debounce_button = lcd.RIGHT
+				if ((buttons >> lcd.LEFT) & 1):
+					# If it's been less than 2 seconds since the button was last pressed
+					if time.time() - last_prev < 2:
+						# Go to the last track
 						action_queue.put(ACTION_PREV)
 					else:
+						# Otherwise Rewind
 						action_queue.put(ACTION_REWIND)
+
+					# Record the new time for the last press
+					last_prev = time.time()
+
 					state = STATE_HOLDOFF
-					debounce_button = LCD.LEFT
-					last_prev = time.clock()
-				if (lcd.is_pressed(LCD.SELECT)):
+					debounce_button = lcd.LEFT
+				if ((buttons >> lcd.SELECT) & 1):
 					action_queue.put(ACTION_PLAYPAUSE)
 					state = STATE_HOLDOFF
-					debounce_button = LCD.SELECT
+					debounce_button = lcd.SELECT
 
 			# Handle the LCD
 			count += 1
@@ -96,25 +106,27 @@ def plate_handler():
 			# Delay a bit to avoid saturating the processor.
 			time.sleep(.05)
 	except:
-		print("BUTTON WATCHER DIED!")
-		pass
+		print("LCD Driver Crashed!")
 	return
 
 print('Initializing hardware and drivers..')
 
 # Initialize the LCD
 lcd = LCD.Adafruit_CharLCDPlate()
+lcd.begin(16,2)
+atexit.register(lcd.stop)
+
 # Add the volume indicators
-lcd.create_char(1,[0,0,0,0,0,0,0,30])
-lcd.create_char(2,[0,0,0,0,0,0,16,30])
-lcd.create_char(3,[0,0,0,0,8,8,16+8,30])
-lcd.create_char(4,[0,0,4,4,8+4,8+4,16+8+4,30])
-lcd.create_char(5,[2,2,4+2,4+2,8+4+2,8+4+2,16+8+4+2,30])
+lcd.createChar(1,[0,0,0,0,0,0,0,30])
+lcd.createChar(2,[0,0,0,0,0,0,16,30])
+lcd.createChar(3,[0,0,0,0,8,8,16+8,30])
+lcd.createChar(4,[0,0,4,4,8+4,8+4,16+8+4,30])
+lcd.createChar(5,[2,2,4+2,4+2,8+4+2,8+4+2,16+8+4+2,30])
 
 # Clear the screen
 lcd.clear()
 # Turn on the backlight
-lcd.set_color(1.0, 1.0, 1.0)
+lcd.backlight(lcd.ON)
 # And place some initial text on the screen
 lcd.message('Starting...')
 
@@ -245,7 +257,7 @@ client.disconnect()
 print "Shutting down plate_watcher..."
 plate_watcher.join() # Wait for the LCD thread to die
 print "Cleaning up LCD..."
-lcd.set_color(0.0, 0.0, 0.0) # Turn off the backlight
+lcd.backlight(lcd.OFF) # Turn off the backlight
 lcd.clear() # And clear the screen
 print "Bye!"
 
