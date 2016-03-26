@@ -16,6 +16,7 @@ ACTION_NEXT = 3
 ACTION_PREV = 4
 ACTION_REWIND = 5
 ACTION_PLAYPAUSE = 6
+ACTION_SCREEN_TOGGLE = 7
 
 # Thread for managing the LCD
 def plate_handler():
@@ -48,8 +49,14 @@ def plate_handler():
 		while running: # So long as the parent is going...
 			if state == STATE_DEBOUNCE: # Wait for the user to let go.
 				if (not lcd.buttonPressed(debounce_button)):
+					if debounce_button == lcd.SELECT: # if they pressed down select
+						if time.time()-hold_time > 2: # and held it for 2 seconds
+							action_queue.put(ACTION_SCREEN_TOGGLE) # toggle the screen
+						else:
+							action_queue.put(ACTION_PLAYPAUSE) # Otherwise, toggle the play state.
 					state = STATE_IDLE
 			if state == STATE_HOLDOFF: # Wait an extra tick to let chatter settle out.
+				hold_time = time.time()
 				state = STATE_DEBOUNCE
 			if state == STATE_IDLE: # Check to see what buttons are pressed
 				buttons = lcd.buttons()
@@ -80,7 +87,6 @@ def plate_handler():
 					state = STATE_HOLDOFF
 					debounce_button = lcd.LEFT
 				if ((buttons >> lcd.SELECT) & 1):
-					action_queue.put(ACTION_PLAYPAUSE)
 					state = STATE_HOLDOFF
 					debounce_button = lcd.SELECT
 
@@ -127,6 +133,7 @@ lcd.createChar(5,[2,2,4+2,4+2,8+4+2,8+4+2,16+8+4+2,30])
 lcd.clear()
 # Turn on the backlight
 lcd.backlight(lcd.ON)
+screen = True
 # And place some initial text on the screen
 lcd.message('Starting...')
 
@@ -197,6 +204,13 @@ try:
 					client.pause(1)
 				if stats['state'] == "pause":
 					client.pause(0)
+			elif action == ACTION_SCREEN_TOGGLE:
+				if screen:
+					screen = False
+					lcd.backlight(lcd.OFF)
+				else:
+					screen = True
+					lcd.backlight(lcd.ON)
 			else:
 				print('Unexpected action queue item: {0}'.format(action))
 	
