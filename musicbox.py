@@ -155,7 +155,24 @@ print('Connecting...')
 client = MPDClient()
 client.timeout = 10
 client.idletimeout = None
-client.connect("localhost",6600)
+
+connected = False
+retries = 0
+while not connected:
+    try:
+        client.connect("localhost",6600)
+        connected = True
+    except KeyboardInterrupt:
+        raise
+    except:
+        print('Failed to connect. Waiting 10s and retrying...')
+        time.sleep(10)
+        retries+=1
+        if retries >= 10:
+            print('Too many retries. Exiting.')
+            raise
+
+
 
 # At this point, we need to catch the ^C to ensure we clean up gracefully.
 try:
